@@ -1,0 +1,7 @@
+models:
+  - type: main
+    engine: openai
+    model: qwen3.6:35b-a3b
+    parameters:
+      base_url: ${OLLAMA_BASE_URL}/v1
+      api_key: "ollama"

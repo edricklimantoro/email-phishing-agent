@@ -1,0 +1,11 @@
+# Environment (contains real credentials)
+.env
+
+# n8n local data directory (auto-created by Docker volume mount)
+n8n_data/
+
+# Node dependencies (if any local tooling is added)
+node_modules/
+
+# macOS
+.DS_Store

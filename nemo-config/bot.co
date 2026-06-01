@@ -1,0 +1,7 @@
+define user express prompt injection
+  "ignore previous instructions"
+  "system override"
+
+define flow
+  user express prompt injection
+  bot respond "SECURITY_VIOLATION_DETECTED"

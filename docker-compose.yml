@@ -1,0 +1,31 @@
+services:
+  # Your Orchestration Pipeline
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n-orchestrator
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+  # Your LLM Guardrail API
+  nemo-guardrails:
+    # Assuming you build a custom image with your Colang scripts
+    build: 
+      context: ./nemo-config 
+    container_name: nemo-guardrails
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    restart: unless-stopped
+
+volumes:
+  n8n_data:
