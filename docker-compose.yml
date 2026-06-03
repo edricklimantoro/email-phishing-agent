@@ -1,5 +1,4 @@
 services:
-  # Your Orchestration Pipeline
   n8n:
     image: docker.n8n.io/n8nio/n8n
     container_name: n8n-orchestrator
@@ -11,20 +10,68 @@ services:
       - N8N_PROTOCOL=http
       - NODE_ENV=production
       - N8N_SECURE_COOKIE=false
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.6:35b-a3b}
     volumes:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
 
-  # Your LLM Guardrail API
   nemo-guardrails:
-    # Assuming you build a custom image with your Colang scripts
-    build: 
-      context: ./nemo-config 
+    build:
+      context: ./nemo-config
     container_name: nemo-guardrails
     ports:
       - "8000:8000"
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+    restart: unless-stopped
+
+  email-agent:
+    build:
+      context: ./email_agent
+    container_name: email-agent
+    ports:
+      - "8001:8001"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.6:35b-a3b}
+      - NEMO_API_URL=http://nemo-guardrails:8000
+      - IMAP_HOST=${IMAP_HOST:-imap.gmail.com}
+      - IMAP_PORT=${IMAP_PORT:-993}
+      - IMAP_USER=${IMAP_USER}
+      - IMAP_PASS=${IMAP_PASS}
+      - IMAP_MAILBOX=${IMAP_MAILBOX:-INBOX}
+      - AGENT_POLL_INTERVAL=${AGENT_POLL_INTERVAL:-60}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MAX_BODY_CHARS=${MAX_BODY_CHARS:-50000}
+      - API_KEY=${API_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    depends_on:
+      nemo-guardrails:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: email-dashboard
+    ports:
+      - "3000:80"
+    depends_on:
+      email-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

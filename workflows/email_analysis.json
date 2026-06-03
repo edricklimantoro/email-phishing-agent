@@ -1,0 +1,345 @@
+{
+  "name": "Email Security Analysis Pipeline",
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "imap",
+      "name": "IMAP Email",
+      "type": "n8n-nodes-base.emailImap",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "parameters": {
+        "credentials": {
+          "emailImap": "gmail-imap"
+        },
+        "options": {
+          "format": "text",
+          "downloadAttachments": false
+        }
+      }
+    },
+    {
+      "id": "sanitize",
+      "name": "Sanitize HTML",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "functionCode": "const items = $input.all();\nfor (const item of items) {\n  const body = item.json.body || item.json.htmlBody || '';\n  let text = body.replace(/<[^>]*>/g, ' ');\n  text = text.replace(/\\s+/g, ' ').trim();\n  item.json.body_text = text;\n  item.json.message_id = item.json.messageId || item.json.id || `email-${Date.now()}`;\n}\nreturn items;"
+      }
+    },
+    {
+      "id": "guardrail",
+      "name": "NeMo Guardrails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://nemo-guardrails:8000/v1/chat/completions",
+        "authentication": "none",
+        "contentType": "json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "config_id",
+              "value": "default"
+            },
+            {
+              "name": "messages",
+              "value": "={{[{\"role\":\"user\",\"content\":$json.body_text}]}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      }
+    },
+    {
+      "id": "injection_check",
+      "name": "Injection Detected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.choices[0].message.content}}",
+              "operation": "contains",
+              "value2": "SECURITY_VIOLATION_DETECTED"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "store_violation",
+      "name": "Store Violation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 180],
+      "parameters": {
+        "method": "POST",
+        "url": "http://email-agent:8001/api/emails",
+        "authentication": "none",
+        "contentType": "json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message_id",
+              "value": "={{$json.message_id}}"
+            },
+            {
+              "name": "sender",
+              "value": "={{$json.from || $json.sender}}"
+            },
+            {
+              "name": "subject",
+              "value": "={{$json.subject}}"
+            },
+            {
+              "name": "body_text",
+              "value": "={{$json.body_text}}"
+            },
+            {
+              "name": "status",
+              "value": "security_violation"
+            },
+            {
+              "name": "guardrail_safe",
+              "value": false
+            },
+            {
+              "name": "guardrail_reason",
+              "value": "={{$json.choices[0].message.content}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "llm_classify",
+      "name": "LLM Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OLLAMA_BASE_URL}}/api/chat",
+        "authentication": "none",
+        "contentType": "json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{$env.LLM_MODEL || 'qwen3.6:35b-a3b'}}"
+            },
+            {
+              "name": "stream",
+              "value": false
+            },
+            {
+              "name": "format",
+              "value": "json"
+            },
+            {
+              "name": "messages",
+              "value": "={{[{\"role\":\"system\",\"content\":\"You are an email security classifier. Analyze the email and determine if it is phishing or safe. Respond with JSON: {\\\"classification\\\":\\\"phishing\\\"|\\\"safe\\\", \\\"confidence\\\":0.0-1.0}\"},{\"role\":\"user\",\"content\":\"Email:\\n```\\n\" + $json.body_text + \"\\n```\"}]}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "parse_llm",
+      "name": "Parse LLM Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1560, 420],
+      "parameters": {
+        "functionCode": "const items = $input.all();\nfor (const item of items) {\n  const raw = item.json.message?.content || '{}';\n  let parsed = {};\n  try {\n    parsed = JSON.parse(raw);\n  } catch (e) {\n    parsed = { classification: 'safe', confidence: 0 };\n  }\n  item.json.classification = parsed.classification || 'safe';\n  item.json.confidence = parsed.confidence || 0;\n  item.json.status = item.json.classification;\n}\nreturn items;"
+      }
+    },
+    {
+      "id": "store_result",
+      "name": "Store Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1780, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "http://email-agent:8001/api/emails",
+        "authentication": "none",
+        "contentType": "json",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message_id",
+              "value": "={{$json.message_id}}"
+            },
+            {
+              "name": "sender",
+              "value": "={{$json.from || $json.sender}}"
+            },
+            {
+              "name": "subject",
+              "value": "={{$json.subject}}"
+            },
+            {
+              "name": "body_text",
+              "value": "={{$json.body_text}}"
+            },
+            {
+              "name": "status",
+              "value": "={{$json.status}}"
+            },
+            {
+              "name": "guardrail_safe",
+              "value": true
+            },
+            {
+              "name": "classification",
+              "value": "={{$json.classification}}"
+            },
+            {
+              "name": "confidence",
+              "value": "={{$json.confidence}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "trigger": {
+      "main": [
+        [
+          {
+            "node": "imap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "imap": {
+      "main": [
+        [
+          {
+            "node": "sanitize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sanitize": {
+      "main": [
+        [
+          {
+            "node": "guardrail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "guardrail": {
+      "main": [
+        [
+          {
+            "node": "injection_check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "injection_check": {
+      "main": [
+        [
+          {
+            "node": "store_violation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "llm_classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "store_violation": {
+      "main": [
+        []
+      ]
+    },
+    "llm_classify": {
+      "main": [
+        [
+          {
+            "node": "parse_llm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse_llm": {
+      "main": [
+        [
+          {
+            "node": "store_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "store_result": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "staticData": null,
+  "tags": [],
+  "pinData": {}
+}

@@ -5,51 +5,66 @@ A production-ready, defense-in-depth email security system that combines determi
 ## Architecture & Data Flow
 
 ```
-┌──────────────┐     ┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────┐
-│  Email Inbox │────▶│  n8n Orchestrator │────▶│ NeMo Guardrails     │────▶│ Fine-tuned LLaMA  │
-│  (IMAP/OAuth)│     │  (Ingestion &     │     │  (Prompt Injection  │     │  (Phishing vs.    │
-│              │     │   Sanitization)   │     │   Detection)        │     │   Safe Inference) │
-└──────────────┘     └──────────────────┘     └─────────────────────┘     └──────────────────┘
-                                                         │                       │
-                                                         │ (Injection Detected)  │
-                                                         ▼                       ▼
-                                              ┌────────────────────┐  ┌────────────────────┐
-                                              │ "Security          │  │ Phishing / Safe    │
-                                              │  Exception"        │  │ Classification     │
-                                              └────────┬───────────┘  └────────┬───────────┘
-                                                       │                       │
-                                                       └───────┬───────────────┘
-                                                               ▼
-                                                     ┌──────────────────┐
-                                                     │  React Dashboard │
-                                                     │  (1-min Polling) │
-                                                     └──────────────────┘
+┌──────────────┐
+│  Email Inbox │────▶ Email Agent (Python) ───▶ NeMo Guardrails ───▶ Ollama LLaMA ───▶ SQLite Store ───▶ React Dashboard
+│  (IMAP/OAuth)│       ┌────────────────┐         ┌────────────────┐      ┌──────────────┐
+│              │       │ IMAP Poller    │         │ Prompt Inj.   │      │ Phishing     │
+│              │       │ HTML Sanitizer │         │ Detection      │      │ Classification│
+│              │       │ FastAPI Server │         └────────────────┘      └──────────────┘
+└──────────────┘       └────────────────┘
+        │
+        └────▶ n8n (alternative visual orchestration)
+                    │
+                    ├──▶ NeMo Guardrails
+                    └──▶ Ollama LLaMA
+                         │
+                         ▼
+                    email-agent API
+                         │
+                         ▼
+                   React Dashboard (polls every 60s)
 ```
 
-1. **Email Ingestion** — n8n monitors a configured mailbox via IMAP/OAuth2, sanitizes raw HTML to plain text, and extracts a structured JSON payload (`message_id`, `sender`, `subject`, `body_text`).
+The system has **two parallel ingestion paths**:
 
-2. **Guardrail Checkpoint** — The payload is sent to the NeMo Guardrails API for prompt injection analysis (Colang scripts detect patterns like `"ignore previous instructions"` or `"system override"`).
-   - **Injection Detected** → Pipeline halts. The email is labeled `SECURITY_VIOLATION_DETECTED` and routed directly to the dashboard as a Security Exception.
-   - **Safe** → Payload proceeds to the LLM inference stage.
+1. **Email Agent (Python)** — Primary active runtime. Continuously polls IMAP, runs the guardrail → LLM pipeline, stores results in SQLite, and serves them via FastAPI.
 
-3. **LLM Inference** — Clean email text is forwarded via HTTP to a fine-tuned LLaMA model (hosted on Ollama) for probabilistic binary classification: **Phishing** or **Safe**.
+2. **n8n Workflow** — Alternative visual orchestration. Monitors the same mailbox, calls the same guardrail/LLM services, and POSTs results to the email-agent API.
 
-4. **Dashboard Update** — The final verdict and metadata are POSTed to the React frontend, which refreshes every 60 seconds to display real-time metrics and email summaries.
+**Pipeline stages:**
+- **Ingestion** — Email fetched via IMAP, HTML sanitized to plain text
+- **Guardrail Check** — NeMo Guardrails scans for prompt injection. If detected → `SECURITY_VIOLATION_DETECTED`
+- **LLM Classification** — Clean text sent to LLaMA (Ollama) → `phishing` or `safe`
+- **Storage & API** — Results stored in SQLite, exposed via REST API
+- **Dashboard** — React frontend polls `/api/stats` and `/api/emails` every 60s
 
 ## Repository Structure
 
 ```text
 .
+├── email_agent/
+│   ├── __init__.py
+│   ├── api.py              # FastAPI REST server
+│   ├── db.py               # SQLite storage
+│   ├── guardrail_client.py # NeMo Guardrails HTTP client
+│   ├── imap_client.py      # IMAP polling & HTML sanitization
+│   ├── llm_client.py       # Ollama LLM classification client
+│   ├── main.py             # Agent orchestrator loop
+│   ├── models.py           # Pydantic data models
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .dockerignore
+├── dashboard/              # React frontend (see its own section)
 ├── nemo-config/
 │   ├── bot.co              # Colang script defining prompt injection flows
 │   ├── config.yml          # NeMo model config (Ollama / OpenAI backend)
 │   └── Dockerfile          # Docker build for NeMo Guardrails server
 ├── workflows/
-│   └── email_analysis.json # Exported n8n workflow (IMAP ingestion → API calls → dashboard)
-├── docker-compose.yml      # Multi-container setup (n8n + nemo-guardrails)
-├── .env.example            # Template for Gmail OAuth credentials & API tokens
-├── .gitignore              # Files excluded from version control
-└── README.md               # This file
+│   └── email_analysis.json # Exported n8n workflow
+├── docker-compose.yml      # Multi-container setup (all services)
+├── .env.example            # Environment variable template
+├── .gitignore
+└── README.md
 ```
 
 ## Quick Start
@@ -106,6 +121,7 @@ On the next pull, teammates import the updated JSON via **Settings → Import** 
 | Variable            | Description                              | Example                              |
 |---------------------|------------------------------------------|--------------------------------------|
 | `OLLAMA_BASE_URL`   | Base URL of the Ollama inference host    | `http://host.docker.internal:11434`  |
+| `LLM_MODEL`         | Ollama model name                        | `qwen3.6:35b-a3b`                    |
 
 ## Key Components
 
@@ -137,10 +153,45 @@ The central workflow engine. The exported pipeline in `workflows/email_analysis.
 
 A LLaMA-based model fine-tuned (using LLaMA-Factory) on curated phishing corpora. Accepts clean text and returns a `{"classification": "phishing" | "safe", "confidence": 0.0–1.0}` JSON response.
 
-### React Dashboard (frontend, separate repository)
+### React Dashboard (`dashboard/`, included)
 
-Polls the backend API every 60 seconds. Displays:
+Built with Vite + React 18 + TypeScript + Recharts. Polls the agent API every 60 seconds. Displays:
 - Total emails analyzed
 - Classification breakdown (Safe / Phishing / Security Exception)
 - Per-email detail view with raw text, LLM confidence score, and guardrail status
+
+---
+
+## Email Agent (`email_agent/`)
+
+A Python-based active runtime that continuously monitors a mailbox and processes emails through the security pipeline. Can run alongside or independently of n8n.
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `main.py` | Agent orchestrator — poll loop, email processing pipeline |
+| `imap_client.py` | IMAP connection, unseen email fetching, HTML sanitization |
+| `guardrail_client.py` | HTTP client for NeMo Guardrails (with circuit breaker) |
+| `llm_client.py` | HTTP client for Ollama LLaMA classification (with retry) |
+| `db.py` | SQLite storage with WAL mode, thread-safe |
+| `api.py` | FastAPI REST server — serves stats, email records, ingestion endpoint |
+| `models.py` | Pydantic v2 data models |
+
+### Pipeline (per email)
+
+1. **IMAP Poll** — connect, fetch UNSEEN, mark as seen
+2. **NeMo Guardrails** — check for prompt injection. If detected → `security_violation`
+3. **LLM Classification** — if guardrail passes, classify as `phishing` or `safe`
+4. **Store** — write result to SQLite, expose via API
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Health check |
+| `POST` | `/api/emails` | Store an email record (used by n8n) |
+| `GET` | `/api/emails` | List emails (?page, ?page_size, ?status) |
+| `GET` | `/api/emails/:id` | Single email detail |
+| `GET` | `/api/stats` | Aggregate counts (total, safe, phishing, violations) |
 

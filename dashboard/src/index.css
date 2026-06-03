@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette */
+  --color-soft-apricot: #f9dbbd;
+  --color-tangerine-dream: #fca17d;
+  --color-blush-rose: #da627d;
+  --color-grape-soda: #9a348e;
+  --color-midnight-violet: #0d0628;
+
+  /* Semantic colors */
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-elevated: rgba(255, 255, 255, 0.85);
+  --color-foreground: #0a0a0a;
+  --color-muted: rgba(0, 0, 0, 0.5);
+  --color-border: rgba(10, 10, 10, 0.10);
+
+  --color-primary: #da627d;
+  --color-primary-hover: #fca17d;
+  --color-primary-foreground: #ffffff;
+
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+
+  --color-status-safe: #16a34a;
+  --color-status-phishing: #dc2626;
+  --color-status-violation: #d97706;
+  --color-status-pending: #6b7280;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+
+  /* Spacing base for Tailwind (p-1 = 0.25rem = 4px) */
+  --spacing: 0.25rem;
+}
+
+.dark {
+  --color-background: #0a0a0a;
+  --color-surface: #171717;
+  --color-surface-elevated: #1f1f1f;
+  --color-foreground: #fafafa;
+  --color-muted: rgba(255, 255, 255, 0.55);
+  --color-border: rgba(250, 250, 250, 0.1);
+  --color-primary: #da627d;
+  --color-primary-hover: #fca17d;
+}
