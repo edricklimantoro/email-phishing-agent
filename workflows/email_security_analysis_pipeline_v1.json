@@ -1,0 +1,358 @@
+{
+  "name": "Email Security Analysis Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "4c89262c-53d5-4e53-aeb3-df30832642e5",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nemo-guardrails:8000/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"guardrails\": {\"config_id\": \".\"},\n  \"model\": \"qwen3.6:35b-a3b\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify($json.body_text) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "17fbacb0-6f24-40c8-a1d1-f58c26291fce",
+      "name": "NeMo Guardrails",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        -432,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.choices[0].message.content}}",
+              "operation": "contains",
+              "value2": "SECURITY_VIOLATION_DETECTED"
+            }
+          ]
+        }
+      },
+      "id": "abaf9bd5-d886-4882-a4df-2d2aca8c0fc2",
+      "name": "Injection Detected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://email-agent:8001/api/emails",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message_id",
+              "value": "={{$json.message_id}}"
+            },
+            {
+              "name": "sender",
+              "value": "={{$json.from || $json.sender}}"
+            },
+            {
+              "name": "subject",
+              "value": "={{$json.subject}}"
+            },
+            {
+              "name": "body_text",
+              "value": "={{$json.body_text}}"
+            },
+            {
+              "name": "status",
+              "value": "security_violation"
+            },
+            {
+              "name": "guardrail_safe",
+              "value": false
+            },
+            {
+              "name": "guardrail_reason",
+              "value": "={{$json.choices[0].message.content}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "f1462456-fc73-4eed-ab2c-313386e15328",
+      "name": "Store Violation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        16,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OLLAMA_BASE_URL}}/api/chat",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "={{$env.LLM_MODEL || 'qwen3.6:35b-a3b'}}"
+            },
+            {
+              "name": "stream",
+              "value": false
+            },
+            {
+              "name": "format",
+              "value": "json"
+            },
+            {
+              "name": "messages",
+              "value": "={{[{\"role\":\"system\",\"content\":\"You are an email security classifier. Analyze the email and determine if it is phishing or safe. Respond with JSON: {\\\"classification\\\":\\\"phishing\\\"|\\\"safe\\\", \\\"confidence\\\":0.0-1.0}\"},{\"role\":\"user\",\"content\":\"Email:\\n```\\n\" + $json.body_text + \"\\n```\"}]}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "cb7a6fca-aae2-4722-bdf4-62b2b0dd5eec",
+      "name": "LLM Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        16,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = $input.all();\nfor (const item of items) {\n  const raw = item.json.message?.content || '{}';\n  let parsed = {};\n  try {\n    parsed = JSON.parse(raw);\n  } catch (e) {\n    parsed = { classification: 'safe', confidence: 0 };\n  }\n  item.json.classification = parsed.classification || 'safe';\n  item.json.confidence = parsed.confidence || 0;\n  item.json.status = item.json.classification;\n}\nreturn items;"
+      },
+      "id": "ccd413e8-b9dd-45ad-a741-4669a6fbbf87",
+      "name": "Parse LLM Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        240,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://email-agent:8001/api/emails",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message_id",
+              "value": "={{$json.message_id}}"
+            },
+            {
+              "name": "sender",
+              "value": "={{$json.from || $json.sender}}"
+            },
+            {
+              "name": "subject",
+              "value": "={{$json.subject}}"
+            },
+            {
+              "name": "body_text",
+              "value": "={{$json.body_text}}"
+            },
+            {
+              "name": "status",
+              "value": "={{$json.status}}"
+            },
+            {
+              "name": "guardrail_safe",
+              "value": true
+            },
+            {
+              "name": "classification",
+              "value": "={{$json.classification}}"
+            },
+            {
+              "name": "confidence",
+              "value": "={{$json.confidence}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "660c6bc8-ceaf-4a93-86be-13720bb987b0",
+      "name": "Store Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        464,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst processed = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const json = items[i].json;\n  \n  let cleanText = \"\";\n\n  // 1. If Google provided the 'text' field, use it directly without stripping tags\n  if (json.text) {\n    // Just normalize the spaces/newlines to keep the payload clean\n    cleanText = json.text.replace(/\\s+/g, ' ').trim();\n  } \n  // 2. Fallback: If there is ONLY HTML available, then we strip the tags\n  else if (json.textAsHtml || json.html) {\n    const rawHtml = json.textAsHtml || json.html;\n    cleanText = rawHtml.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\n  } \n  // 3. Absolute fallback\n  else {\n    cleanText = json.snippet || '';\n  }\n  \n  // Safely extract the sender's email address\n  let senderEmail = 'unknown@sender.com';\n  if (json.from && json.from.value && json.from.value.length > 0) {\n    senderEmail = json.from.value[0].address;\n  } else if (json.from && json.from.text) {\n    senderEmail = json.from.text;\n  }\n\n  // Combine metadata WITH the body for the LLM to analyze contextually\n  const analysisPayload = `SENDER: ${senderEmail}\\nSUBJECT: ${json.subject || '(No Subject)'}\\n\\nBODY:\\n${cleanText}`;\n\n  processed.push({\n    json: {\n      message_id: json.id || json.messageId || `email-${Date.now()}-${i}`,\n      sender_email: senderEmail,\n      subject: json.subject || '(No Subject)',\n      body_text: analysisPayload \n    }\n  });\n}\n\nreturn processed;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        96
+      ],
+      "id": "47d2d55c-9268-418e-9299-cb55afc2ee4d",
+      "name": "Parse Email"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 1,
+        "simple": false,
+        "filters": {
+          "readStatus": "unread",
+          "receivedAfter": "2026-06-03T00:00:00"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -880,
+        96
+      ],
+      "id": "0fb5a52f-5d59-4def-9864-5feebfaf17ca",
+      "name": "Email Polling",
+      "webhookId": "01994f4a-d40d-4fa2-b053-e3f893bbf013",
+      "alwaysOutputData": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "1hCrAJDVbokcxEia",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Polling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NeMo Guardrails": {
+      "main": [
+        [
+          {
+            "node": "Injection Detected?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Injection Detected?": {
+      "main": [
+        [
+          {
+            "node": "Store Violation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Classifier": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM Response": {
+      "main": [
+        [
+          {
+            "node": "Store Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Email": {
+      "main": [
+        [
+          {
+            "node": "NeMo Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Polling": {
+      "main": [
+        [
+          {
+            "node": "Parse Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "aa996c39-e313-41ea-adae-abae4902219a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "059347b7b2501259aafbc5a0f2ba72b008acc5bdcfc79df9c31960e8924b5cdf"
+  },
+  "id": "uQ5sQMbgXqwELcGt",
+  "tags": []
+}

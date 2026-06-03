@@ -18,8 +18,11 @@ RUN pip install "nemoguardrails[server]"
 # Copy your configuration files into the container
 COPY . /app
 
+# Make the entrypoint executable
+RUN chmod +x /app/entrypoint.sh
+
 # Expose the port the server will run on
 EXPOSE 8000
 
-# Start the NeMo Guardrails server
-CMD ["nemoguardrails", "server", "--port", "8000", "--config", "."]
+# Start the NeMo Guardrails server (entrypoint substitutes env vars in config.yml)
+CMD ["/app/entrypoint.sh"]
