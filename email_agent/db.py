@@ -5,7 +5,7 @@ from .models import EmailRecord, StatsResponse
 
 
 class EmailStore:
-    def __init__(self, db_path: str = "email_agent.db"):
+    def __init__(self, db_path: str = "/data/email_agent.db"):
         self.db_path = db_path
         self._lock = threading.Lock()
         self._conn = None

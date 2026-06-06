@@ -11,9 +11,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 RUN useradd -m -u 1000 agent
-USER agent
 
-COPY . .
+COPY . ./email_agent/
+RUN chown -R agent:agent /app && mkdir -p /data && chown -R agent:agent /data
+
+USER agent
 
 EXPOSE 8001
 

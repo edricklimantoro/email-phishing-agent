@@ -46,6 +46,8 @@ services:
       - MAX_BODY_CHARS=${MAX_BODY_CHARS:-50000}
       - API_KEY=${API_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    volumes:
+      - email_data:/data
     depends_on:
       nemo-guardrails:
         condition: service_started
@@ -76,3 +78,4 @@ services:
 
 volumes:
   n8n_data:
+  email_data:
