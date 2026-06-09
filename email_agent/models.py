@@ -47,3 +47,11 @@ class EmailListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ImapSettings(BaseModel):
+    host: str = "imap.gmail.com"
+    port: int = 993
+    user: str
+    password: str
+    mailbox: str = "INBOX"

@@ -8,7 +8,7 @@ from .db import EmailStore
 from .guardrail_client import GuardrailClient
 from .imap_client import IMAPClient
 from .llm_client import LLMClient
-from .models import EmailPayload, EmailRecord
+from .models import EmailPayload, EmailRecord, ImapSettings
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,10 @@ class EmailAgent:
             payload.sender,
         )
         return record
+
+    def configure_imap(self, settings: ImapSettings):
+        self.imap.update_config(settings)
+        logger.info("IMAP reconfigured, will use new settings on next poll cycle")
 
     def run_once(self):
         try:

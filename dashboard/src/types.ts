@@ -1,3 +1,9 @@
+declare global {
+  interface Window {
+    __POLL_INTERVAL__?: number;
+  }
+}
+
 export interface EmailRecord {
   message_id: string;
   sender: string;
@@ -24,4 +30,12 @@ export interface EmailListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface ImapSettings {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  mailbox: string;
 }

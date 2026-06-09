@@ -1,0 +1,131 @@
+.settings-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.settings-loading {
+  text-align: center;
+  padding: 48px 0;
+  color: var(--text-muted);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-back {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.settings-back:hover {
+  background: var(--bg-tertiary);
+}
+
+.settings-title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.settings-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.form-group input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-group input:focus {
+  border-color: var(--accent-primary);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.settings-message {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.settings-message.success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #22c55e;
+}
+
+.settings-message.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.settings-submit {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-top: 4px;
+}
+
+.settings-submit:hover {
+  opacity: 0.9;
+}
+
+.settings-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

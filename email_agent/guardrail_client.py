@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 class GuardrailClient:
     def __init__(self):
         self.base_url = os.getenv("NEMO_API_URL", "http://nemo-guardrails:8000")
+        self.model = os.getenv("LLM_MODEL", "qwen3.6:35b-a3b")
         self._failures = 0
         self._circuit_open = False
         self._circuit_until = 0.0
@@ -34,8 +36,11 @@ class GuardrailClient:
             resp = requests.post(
                 f"{self.base_url}/v1/chat/completions",
                 json={
-                    "config_id": "default",
+                    "model": self.model,
                     "messages": [{"role": "user", "content": email_text}],
+                    "guardrails": {
+                        "config_id": "default"
+                    },
                 },
                 timeout=self._timeout,
             )

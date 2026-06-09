@@ -2,9 +2,11 @@ import imaplib
 import email
 import logging
 import os
+import socket
+import time
 from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
-from .models import EmailPayload
+from .models import EmailPayload, ImapSettings
 
 logger = logging.getLogger(__name__)
 
@@ -19,32 +21,63 @@ class IMAPClient:
         self.max_body_chars = int(os.getenv("MAX_BODY_CHARS", "50000"))
         self.conn = None
 
+    def update_config(self, settings: ImapSettings):
+        self.host = settings.host
+        self.port = settings.port
+        self.user = settings.user
+        self.password = settings.password
+        self.mailbox = settings.mailbox
+        self.disconnect()
+        logger.info("IMAP config updated: %s@%s:%d/%s", self.user, self.host, self.port, self.mailbox)
+
     def connect(self):
-        if self.conn:
-            try:
-                self.conn.noop()
-                return
-            except Exception:
-                self.conn = None
-        self.conn = imaplib.IMAP4_SSL(self.host, self.port)
+        self.disconnect()
+        self.conn = imaplib.IMAP4_SSL(self.host, self.port, timeout=15)
+        self.conn.sock.settimeout(15)
+        self.conn.capability()
+        time.sleep(0.5)
         self.conn.login(self.user, self.password)
         self.conn.select(self.mailbox)
         logger.info("Connected to IMAP %s as %s", self.host, self.user)
 
     def fetch_unseen(self) -> list[EmailPayload]:
         self.connect()
-        result, data = self.conn.search(None, "UNSEEN")
+        logger.info("Searching for UNSEEN emails...")
+        from datetime import datetime, timedelta
+        since_date = (datetime.utcnow() - timedelta(hours=int(os.getenv("IMAP_FETCH_HOURS", "24")))).strftime("%d-%b-%Y")
+        try:
+            result, data = self.conn.search(None, f'(UNSEEN SINCE {since_date})')
+            logger.info("IMAP search completed: %s with %d IDs", result, len(data[0].split()) if data and data[0] else 0)
+        except imaplib.IMAP4.abort as e:
+            logger.error("IMAP connection aborted during search: %s", e)
+            self.conn = None
+            return []
+        except (socket.timeout, TimeoutError) as e:
+            logger.error("IMAP search timed out: %s", e)
+            self.conn = None
+            return []
+        except Exception as e:
+            logger.error("IMAP search failed: %s", e)
+            self.conn = None
+            return []
         if result != "OK":
             logger.warning("IMAP search failed: %s", result)
             return []
 
         ids = data[0].split()
         if not ids:
+            logger.debug("No unseen emails found")
             return []
 
+        max_fetch = int(os.getenv("IMAP_MAX_FETCH", "25"))
+        if len(ids) > max_fetch:
+            logger.info("Limiting fetch to %d of %d unseen emails", max_fetch, len(ids))
+            ids = ids[:max_fetch]
+
         payloads: list[EmailPayload] = []
-        for mid in ids:
+        for idx, mid in enumerate(ids):
             try:
+                logger.debug("Fetching email %d/%d: %s", idx + 1, len(ids), mid)
                 result, data = self.conn.fetch(mid, "(RFC822)")
                 if result != "OK":
                     continue
@@ -54,6 +87,14 @@ class IMAPClient:
                 if payload:
                     payloads.append(payload)
                 self.conn.store(mid, "+FLAGS", "\\Seen")
+            except socket.timeout:
+                logger.error("Timeout fetching email %s, reconnecting...", mid)
+                self.conn = None
+                break
+            except imaplib.IMAP4.abort as e:
+                logger.error("IMAP connection lost fetching email %s: %s", mid, e)
+                self.conn = None
+                break
             except Exception as e:
                 logger.error("Failed to fetch email %s: %s", mid, e)
 
