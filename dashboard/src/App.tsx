@@ -74,7 +74,7 @@ export default function App() {
           </button>
           <span className="live-badge">
             <span className="live-dot" />
-            Live · 60s
+            Live · {POLL_INTERVAL / 1000}s
           </span>
         </div>
       </header>
