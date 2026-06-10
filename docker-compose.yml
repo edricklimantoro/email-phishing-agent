@@ -21,7 +21,7 @@ services:
       context: ./nemo-config
     container_name: nemo-guardrails
     ports:
-      - "8000:8000"
+      - "8002:8000"
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
     restart: unless-stopped
@@ -64,7 +64,9 @@ services:
       context: ./dashboard
     container_name: email-dashboard
     ports:
-      - "3000:80"
+      - "3001:80"
+    environment:
+      - DASHBOARD_POLL_INTERVAL=${DASHBOARD_POLL_INTERVAL:-60000}
     depends_on:
       email-agent:
         condition: service_healthy
